@@ -640,12 +640,20 @@ def plot_mean_entropy(
         se = np.nanstd(arr, axis=0, ddof=1) / np.sqrt(arr.shape[0])
 
         line = plt.plot(t, mean, linewidth=2.0, label=name)[0]
-        plt.fill_between(
+
+        # Solid dots
+        plt.scatter(t, mean, s=25, color=line.get_color(), zorder=3)
+
+        # Small vertical SE bars with caps
+        plt.errorbar(
             t,
-            mean - se,
-            mean + se,
-            alpha=0.2,
-            color=line.get_color(),
+            mean,
+            yerr=se,
+            fmt="none",
+            ecolor=line.get_color(),
+            elinewidth=1.2,
+            capsize=3,
+            alpha=0.9,
         )
 
     plt.xlabel("t")
@@ -655,7 +663,6 @@ def plot_mean_entropy(
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
     plt.close()
-
 
 def plot_rmse_a(
     out_path: Path,
@@ -671,16 +678,24 @@ def plot_rmse_a(
 
     for name, arr in se_a.items():
         rmse = np.sqrt(np.nanmean(arr, axis=0))
-        rmse_per_run = np.sqrt(arr)  # RMSE per run at each t
+        rmse_per_run = np.sqrt(arr)
         se = np.nanstd(rmse_per_run, axis=0, ddof=1) / np.sqrt(arr.shape[0])
 
         line = plt.plot(t, rmse, linewidth=2.0, label=name)[0]
-        plt.fill_between(
+
+        # Solid dots
+        plt.scatter(t, rmse, s=25, color=line.get_color(), zorder=3)
+
+        # Small vertical SE bars with caps
+        plt.errorbar(
             t,
-            rmse - se,
-            rmse + se,
-            alpha=0.2,
-            color=line.get_color(),
+            rmse,
+            yerr=se,
+            fmt="none",
+            ecolor=line.get_color(),
+            elinewidth=1.2,
+            capsize=3,
+            alpha=0.9,
         )
 
     plt.xlabel("t")
@@ -690,7 +705,6 @@ def plot_rmse_a(
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
     plt.close()
-
 
 def plot_posterior_predictive_frames(
     frames_dir: Path,
@@ -775,9 +789,11 @@ def plot_posterior_predictive_frames(
         plt.legend(loc="best")
         plt.tight_layout()
 
-        out_path = frames_dir / f"frame_{t:+04d}.png"
+        t_str = f"{t:03d}" if t >= 0 else f"-{abs(t):03d}"
+        out_path = frames_dir / f"frame_{frame_idx}_{t_str}.png"
         plt.savefig(out_path, dpi=200)
         plt.close()
+
 
 
 def plot_posterior_a_frames(
@@ -870,7 +886,8 @@ def plot_posterior_a_frames(
         ax1.legend(loc="upper left")
         plt.tight_layout()
 
-        out_path = frames_dir / f"frame_{t:+04d}.png"
+        t_str = f"{t:03d}" if t >= 0 else f"-{abs(t):03d}"
+        out_path = frames_dir / f"frame_{frame_idx}_{t_str}.png"
         plt.savefig(out_path, dpi=200)
         plt.close()
 
@@ -878,6 +895,7 @@ def plot_posterior_a_frames(
 # =========================
 # Simulation core
 # =========================
+
 
 def run_strategy(
     strategy_name: str,
