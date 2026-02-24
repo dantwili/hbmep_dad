@@ -189,6 +189,13 @@ class MEPModel(nn.Module):
         c1 = latent_sample("c1", dist.HalfNormal(self.c1_scale)).clamp(min=eps)
         c2 = latent_sample("c2", dist.HalfNormal(self.c2_scale)).clamp(min=eps)
 
+        # b = self.b_scale
+        # ell = self.ell_scale
+        # L = self.L_scale
+        # H = self.H_scale
+        # c1 = self.c1_scale
+        # c2 = self.c2_scale
+
         # Reshape parameters to match xi dimensions [batch, n, 1]
         a = a.unsqueeze(-1).unsqueeze(-1)      # [100] -> [100, 1, 1]
         b = b.unsqueeze(-1).unsqueeze(-1)
@@ -293,20 +300,20 @@ class MEPModel(nn.Module):
                 
                 true_theta = {
                     'a': a,
-                    'b': trace.nodes["b"]["value"].cpu().item(),
-                    'L': trace.nodes["L"]["value"].cpu().item(),
-                    'ell': trace.nodes["ell"]["value"].cpu().item(),
-                    'H': trace.nodes["H"]["value"].cpu().item(),
-                    'c1': trace.nodes["c1"]["value"].cpu().item(),
-                    'c2': trace.nodes["c2"]["value"].cpu().item(),
+                    # 'b': trace.nodes["b"]["value"].cpu().item(),
+                    # 'L': trace.nodes["L"]["value"].cpu().item(),
+                    # 'ell': trace.nodes["ell"]["value"].cpu().item(),
+                    # 'H': trace.nodes["H"]["value"].cpu().item(),
+                    # 'c1': trace.nodes["c1"]["value"].cpu().item(),
+                    # 'c2': trace.nodes["c2"]["value"].cpu().item(),
                 }
                 
                 if verbose:
                     print(f"*True Parameters:*")
                     print(f"  Threshold (a): {true_theta['a']:.2f}")
-                    print(f"  Growth rate (b): {true_theta['b']:.3f}")
-                    print(f"  Offset (L): {true_theta['L']:.3f}")
-                    print(f"  Saturation (L+H): {(true_theta['L'] + true_theta['H']):.3f}")
+                    # print(f"  Growth rate (b): {true_theta['b']:.3f}")
+                    # print(f"  Offset (L): {true_theta['L']:.3f}")
+                    # print(f"  Saturation (L+H): {(true_theta['L'] + true_theta['H']):.3f}")
                 
                 run_xis = []
                 run_ys = []

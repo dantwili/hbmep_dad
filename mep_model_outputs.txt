@@ -441,4 +441,439 @@ xi30: 53.98 % MSO
 2026/02/24 08:50:15 WARNING mlflow.utils.environment: Encountered an unexpected error while inferring pip requirements (model URI: /tmp/tmp04s1nbkh/model/data, flavor: pytorch). Fall back to return ['torch==1.7.1', 'cloudpickle==3.1.1']. Set logging level to DEBUG to see the full traceback. 
 2026/02/24 08:50:15 WARNING mlflow.models.model: Model logged without a signature and input example. Please set `input_example` parameter when logging the model to auto infer the model signature.
 Storing model to MLflow... Model stored in mlruns/250577988941689306/df3c55c6919e45e885227fb84ea2f0ba/artifacts/model. Done.
+
+---
+
+The experiment-id of this run is 250577988941689306
+
+(dad) dantwili@DESKTOP-911REB0:~/repos/hbmep_dad$ python mep_recruitment.py --a-scale 10 --num-steps 1000 --num-experiments 30
+Loss: 0.451 : 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1000/1000 [08:08<00:00,  2.05it/s]
+
+
+
+Example run 1
+*True Parameters:*
+  Threshold (a): 49.81
+xi1: 77.99 % MSO
+ y1: 1.8516 mV
+xi2: 71.36 % MSO
+ y2: 6.0242 mV
+xi3: 67.61 % MSO
+ y3: 0.0578 mV
+xi4: 66.51 % MSO
+ y4: 1.5707 mV
+xi5: 65.54 % MSO
+ y5: 0.6235 mV
+xi6: 64.86 % MSO
+ y6: 1.0623 mV
+xi7: 64.11 % MSO
+ y7: 0.3853 mV
+xi8: 63.42 % MSO
+ y8: 9.3273 mV
+xi9: 61.38 % MSO
+ y9: 2.2014 mV
+xi10: 60.41 % MSO
+ y10: 0.7675 mV
+xi11: 59.62 % MSO
+ y11: 0.2256 mV
+xi12: 58.86 % MSO
+ y12: 2.8477 mV
+xi13: 57.73 % MSO
+ y13: 0.9624 mV
+xi14: 56.85 % MSO
+ y14: 4.5620 mV
+xi15: 55.48 % MSO
+ y15: 1.8873 mV
+xi16: 54.48 % MSO
+ y16: 3.2089 mV
+xi17: 53.31 % MSO
+ y17: 6.7828 mV
+xi18: 51.67 % MSO
+ y18: 2.0870 mV
+xi19: 50.67 % MSO
+ y19: 0.2527 mV
+xi20: 49.91 % MSO
+ y20: 0.3180 mV
+xi21: 49.14 % MSO
+ y21: 0.0554 mV
+xi22: 48.39 % MSO
+ y22: 0.1469 mV
+xi23: 47.65 % MSO
+ y23: 0.0076 mV
+xi24: 46.92 % MSO
+ y24: 0.0704 mV
+xi25: 46.19 % MSO
+ y25: 0.0971 mV
+xi26: 45.47 % MSO
+ y26: 0.0027 mV
+xi27: 44.77 % MSO
+ y27: 0.3846 mV
+xi28: 44.04 % MSO
+ y28: 0.2341 mV
+xi29: 43.34 % MSO
+ y29: 0.0368 mV
+xi30: 42.67 % MSO
+ y30: 0.0839 mV
+
+Example run 2
+*True Parameters:*
+  Threshold (a): 45.03
+xi1: 77.99 % MSO
+ y1: 0.0574 mV
+xi2: 71.78 % MSO
+ y2: 0.0974 mV
+xi3: 69.20 % MSO
+ y3: 0.7044 mV
+xi4: 67.81 % MSO
+ y4: 0.4309 mV
+xi5: 66.90 % MSO
+ y5: 0.2187 mV
+xi6: 66.16 % MSO
+ y6: 0.1675 mV
+xi7: 65.42 % MSO
+ y7: 0.9354 mV
+xi8: 64.57 % MSO
+ y8: 0.0850 mV
+xi9: 63.79 % MSO
+ y9: 1.0516 mV
+xi10: 62.87 % MSO
+ y10: 0.0795 mV
+xi11: 62.04 % MSO
+ y11: 0.5292 mV
+xi12: 61.14 % MSO
+ y12: 0.4296 mV
+xi13: 60.25 % MSO
+ y13: 1.4570 mV
+xi14: 59.25 % MSO
+ y14: 0.5031 mV
+xi15: 58.35 % MSO
+ y15: 0.3827 mV
+xi16: 57.47 % MSO
+ y16: 0.2749 mV
+xi17: 56.60 % MSO
+ y17: 1.5860 mV
+xi18: 55.61 % MSO
+ y18: 0.9457 mV
+xi19: 54.69 % MSO
+ y19: 0.4536 mV
+xi20: 53.84 % MSO
+ y20: 0.5961 mV
+xi21: 52.99 % MSO
+ y21: 0.0256 mV
+xi22: 52.21 % MSO
+ y22: 0.7553 mV
+xi23: 51.36 % MSO
+ y23: 0.8201 mV
+xi24: 50.52 % MSO
+ y24: 0.3840 mV
+xi25: 49.74 % MSO
+ y25: 0.3376 mV
+xi26: 48.98 % MSO
+ y26: 0.0741 mV
+xi27: 48.26 % MSO
+ y27: 0.6473 mV
+xi28: 47.48 % MSO
+ y28: 0.0184 mV
+xi29: 46.80 % MSO
+ y29: 0.1160 mV
+xi30: 46.11 % MSO
+ y30: 0.0128 mV
+
+Example run 3
+*True Parameters:*
+  Threshold (a): 46.81
+xi1: 77.99 % MSO
+ y1: 2.1536 mV
+xi2: 71.29 % MSO
+ y2: 1.6566 mV
+xi3: 68.46 % MSO
+ y3: 1.4781 mV
+xi4: 67.01 % MSO
+ y4: 1.4605 mV
+xi5: 66.02 % MSO
+ y5: 2.2538 mV
+xi6: 65.05 % MSO
+ y6: 1.8301 mV
+xi7: 64.17 % MSO
+ y7: 1.8116 mV
+xi8: 63.28 % MSO
+ y8: 1.4847 mV
+xi9: 62.41 % MSO
+ y9: 1.4323 mV
+xi10: 61.52 % MSO
+ y10: 1.9478 mV
+xi11: 60.53 % MSO
+ y11: 1.8837 mV
+xi12: 59.53 % MSO
+ y12: 3.0503 mV
+xi13: 58.37 % MSO
+ y13: 1.8306 mV
+xi14: 57.36 % MSO
+ y14: 1.5707 mV
+xi15: 56.38 % MSO
+ y15: 1.5225 mV
+xi16: 55.41 % MSO
+ y16: 1.8134 mV
+xi17: 54.40 % MSO
+ y17: 0.8470 mV
+xi18: 53.52 % MSO
+ y18: 1.7197 mV
+xi19: 52.53 % MSO
+ y19: 1.2229 mV
+xi20: 51.62 % MSO
+ y20: 1.9058 mV
+xi21: 50.63 % MSO
+ y21: 3.3927 mV
+xi22: 49.48 % MSO
+ y22: 1.5171 mV
+xi23: 48.56 % MSO
+ y23: 1.6654 mV
+xi24: 47.64 % MSO
+ y24: 0.9652 mV
+xi25: 46.81 % MSO
+ y25: 0.0293 mV
+xi26: 46.09 % MSO
+ y26: 0.0200 mV
+xi27: 45.38 % MSO
+ y27: 0.0311 mV
+xi28: 44.68 % MSO
+ y28: 0.0352 mV
+xi29: 44.00 % MSO
+ y29: 0.0252 mV
+xi30: 43.32 % MSO
+ y30: 0.0366 mV
+
+============================================================
+    intensity  mep_size  order  run_id
+0   77.991562  1.851590      1       1
+1   71.364349  6.024232      2       1
+2   67.611298  0.057753      3       1
+3   66.514084  1.570664      4       1
+4   65.543533  0.623459      5       1
+..        ...       ...    ...     ...
+25  46.089687  0.020019     26       3
+26  45.382301  0.031143     27       3
+27  44.684105  0.035218     28       3
+28  43.996284  0.025153     29       3
+29  43.320625  0.036629     30       3
+
+[90 rows x 4 columns]
+2026/02/24 09:38:13 WARNING mlflow.utils.environment: Encountered an unexpected error while inferring pip requirements (model URI: /tmp/tmp274p40xm/model/data, flavor: pytorch). Fall back to return ['torch==1.7.1', 'cloudpickle==3.1.1']. Set logging level to DEBUG to see the full traceback. 
+2026/02/24 09:38:13 WARNING mlflow.models.model: Model logged without a signature and input example. Please set `input_example` parameter when logging the model to auto infer the model signature.
+Storing model to MLflow... Model stored in mlruns/250577988941689306/06861593da0e48fab0a9d1010c6b7492/artifacts/model. Done.
+The experiment-id of this run is 250577988941689306
+
+(dad) dantwili@DESKTOP-911REB0:~/repos/hbmep_dad$ python mep_recruitment.py --a-scale 10 --num-steps 15000 --num-inner-samples 2000 --num-outer-samples 2000 --num-experiments 30
+Loss: 0.515 : 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 15000/15000 [2:23:56<00:00,  1.74it/s]
+
+Example run 1
+*True Parameters:*
+  Threshold (a): 59.57
+xi1: 32.05 % MSO
+ y1: 0.0425 mV
+xi2: 40.15 % MSO
+ y2: 0.0404 mV
+xi3: 46.98 % MSO
+ y3: 0.0213 mV
+xi4: 52.21 % MSO
+ y4: 0.0011 mV
+xi5: 56.27 % MSO
+ y5: 0.0210 mV
+xi6: 59.45 % MSO
+ y6: 0.0204 mV
+xi7: 62.04 % MSO
+ y7: 0.5882 mV
+xi8: 62.90 % MSO
+ y8: 0.1472 mV
+xi9: 64.46 % MSO
+ y9: 0.3918 mV
+xi10: 65.25 % MSO
+ y10: 0.8950 mV
+xi11: 64.65 % MSO
+ y11: 0.0794 mV
+xi12: 65.94 % MSO
+ y12: 0.5404 mV
+xi13: 66.01 % MSO
+ y13: 0.8548 mV
+xi14: 65.23 % MSO
+ y14: 0.2468 mV
+xi15: 65.95 % MSO
+ y15: 0.3434 mV
+xi16: 66.38 % MSO
+ y16: 0.7377 mV
+xi17: 65.78 % MSO
+ y17: 0.2796 mV
+xi18: 66.34 % MSO
+ y18: 0.2133 mV
+xi19: 67.06 % MSO
+ y19: 0.2865 mV
+xi20: 67.58 % MSO
+ y20: 0.0465 mV
+xi21: 68.71 % MSO
+ y21: 0.3472 mV
+xi22: 69.05 % MSO
+ y22: 0.6426 mV
+xi23: 68.63 % MSO
+ y23: 2.0830 mV
+xi24: 64.42 % MSO
+ y24: 0.2644 mV
+xi25: 65.00 % MSO
+ y25: 0.4210 mV
+xi26: 65.15 % MSO
+ y26: 0.2336 mV
+xi27: 65.80 % MSO
+ y27: 1.0387 mV
+xi28: 64.29 % MSO
+ y28: 0.3069 mV
+xi29: 64.75 % MSO
+ y29: 0.1030 mV
+xi30: 65.77 % MSO
+ y30: 0.4451 mV
+
+Example run 2
+*True Parameters:*
+  Threshold (a): 36.76
+xi1: 32.05 % MSO
+ y1: 0.0277 mV
+xi2: 40.18 % MSO
+ y2: 3.5139 mV
+xi3: 39.68 % MSO
+ y3: 8.8986 mV
+xi4: 31.59 % MSO
+ y4: 0.0853 mV
+xi5: 36.30 % MSO
+ y5: 0.1032 mV
+xi6: 40.01 % MSO
+ y6: 3.1761 mV
+xi7: 37.25 % MSO
+ y7: 1.4814 mV
+xi8: 37.13 % MSO
+ y8: 0.3865 mV
+xi9: 38.59 % MSO
+ y9: 4.2276 mV
+xi10: 34.05 % MSO
+ y10: 0.0117 mV
+xi11: 35.65 % MSO
+ y11: 0.0091 mV
+xi12: 36.98 % MSO
+ y12: 0.1709 mV
+xi13: 37.89 % MSO
+ y13: 3.8726 mV
+xi14: 33.55 % MSO
+ y14: 0.0910 mV
+xi15: 34.43 % MSO
+ y15: 0.0269 mV
+xi16: 35.36 % MSO
+ y16: 0.0869 mV
+xi17: 36.17 % MSO
+ y17: 0.0860 mV
+xi18: 36.98 % MSO
+ y18: 0.5082 mV
+xi19: 37.08 % MSO
+ y19: 1.3070 mV
+xi20: 35.88 % MSO
+ y20: 0.0112 mV
+xi21: 36.82 % MSO
+ y21: 0.1703 mV
+xi22: 37.50 % MSO
+ y22: 0.9625 mV
+xi23: 36.82 % MSO
+ y23: 0.0497 mV
+xi24: 37.73 % MSO
+ y24: 1.5040 mV
+xi25: 36.12 % MSO
+ y25: 0.2515 mV
+xi26: 36.70 % MSO
+ y26: 0.0651 mV
+xi27: 37.62 % MSO
+ y27: 1.6936 mV
+xi28: 35.68 % MSO
+ y28: 0.2772 mV
+xi29: 36.24 % MSO
+ y29: 0.1658 mV
+xi30: 37.00 % MSO
+ y30: 0.1923 mV
+
+Example run 3
+*True Parameters:*
+  Threshold (a): 76.63
+xi1: 32.05 % MSO
+ y1: 0.0348 mV
+xi2: 40.16 % MSO
+ y2: 0.0098 mV
+xi3: 47.06 % MSO
+ y3: 0.0292 mV
+xi4: 52.28 % MSO
+ y4: 0.0476 mV
+xi5: 56.24 % MSO
+ y5: 0.0196 mV
+xi6: 59.42 % MSO
+ y6: 0.0195 mV
+xi7: 62.01 % MSO
+ y7: 0.0196 mV
+xi8: 64.19 % MSO
+ y8: 0.0572 mV
+xi9: 65.99 % MSO
+ y9: 0.0416 mV
+xi10: 67.62 % MSO
+ y10: 0.0343 mV
+xi11: 69.13 % MSO
+ y11: 0.0221 mV
+xi12: 70.55 % MSO
+ y12: 0.0094 mV
+xi13: 71.91 % MSO
+ y13: 0.0368 mV
+xi14: 73.13 % MSO
+ y14: 0.0377 mV
+xi15: 74.29 % MSO
+ y15: 0.0209 mV
+xi16: 75.42 % MSO
+ y16: 0.0499 mV
+xi17: 76.45 % MSO
+ y17: 0.0273 mV
+xi18: 77.48 % MSO
+ y18: 0.0457 mV
+xi19: 78.43 % MSO
+ y19: 0.0202 mV
+xi20: 79.40 % MSO
+ y20: 0.0380 mV
+xi21: 80.29 % MSO
+ y21: 0.0435 mV
+xi22: 81.14 % MSO
+ y22: 0.0161 mV
+xi23: 82.01 % MSO
+ y23: 0.0389 mV
+xi24: 82.81 % MSO
+ y24: 0.0280 mV
+xi25: 83.60 % MSO
+ y25: 0.0090 mV
+xi26: 84.38 % MSO
+ y26: 0.0604 mV
+xi27: 85.06 % MSO
+ y27: 0.0281 mV
+xi28: 85.76 % MSO
+ y28: 0.0450 mV
+xi29: 86.41 % MSO
+ y29: 0.0268 mV
+xi30: 87.06 % MSO
+ y30: 0.0204 mV
+
+============================================================
+    intensity  mep_size  order  run_id
+0   32.054836  0.042465      1       1
+1   40.145466  0.040411      2       1
+2   46.977352  0.021284      3       1
+3   52.208138  0.001081      4       1
+4   56.271053  0.020985      5       1
+..        ...       ...    ...     ...
+25  84.384315  0.060360     26       3
+26  85.059311  0.028143     27       3
+27  85.759888  0.045008     28       3
+28  86.407806  0.026818     29       3
+29  87.056992  0.020441     30       3
+
+[90 rows x 4 columns]
+2026/02/24 12:08:46 WARNING mlflow.utils.environment: Encountered an unexpected error while inferring pip requirements (model URI: /tmp/tmphdrxapgb/model/data, flavor: pytorch). Fall back to return ['torch==1.7.1', 'cloudpickle==3.1.1']. Set logging level to DEBUG to see the full traceback. 
+2026/02/24 12:08:46 WARNING mlflow.models.model: Model logged without a signature and input example. Please set `input_example` parameter when logging the model to auto infer the model signature.
+Storing model to MLflow... Model stored in mlruns/250577988941689306/d748591dcf384679ba786cd940e22a36/artifacts/model. Done.
 The experiment-id of this run is 250577988941689306
