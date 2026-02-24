@@ -15,8 +15,8 @@ Outputs:
   - Plots:
       A) Mean posterior entropy vs t
       B) RMSE of threshold a vs t
-      C) Posterior predictive frames (per strategy, tracked run)
-      D) Posterior of a frames (per strategy, tracked run)
+    C) Posterior predictive frames (per strategy, per run)
+    D) Posterior of a frames (per strategy, per run)
 
 Requires:
   numpy, scipy, matplotlib, tqdm, cmdstanpy, sklearn (optional for kNN entropy)
@@ -63,7 +63,7 @@ logger.setLevel(logging.CRITICAL)
 @dataclass
 class PriorConfig:
     a_mean: float = 50.0
-    a_sd: float = 50.0
+    a_scale: float = 10.0
     a_low: float = 0.0
     a_high: float = 100.0
 
@@ -109,7 +109,8 @@ class EntropyConfig:
 class SimConfig:
     R: int = 10                   # independent runs
     T: int = 20                   # time steps per run
-    num_initial_samples: int = 0  # number of uniform random "burn-in" samples provided before strategies start
+    num_initial_zero: int = 0     # initial number of samples at intensity x=0 before strategies start
+    num_initial_uniform: int = 0  # initial number of samples with x ~ Uniform(0,100) before strategies start
     tracked_run_idx: int = 0      # which run to produce per-t frames
     out_dir: str = "output"
     # Posterior draw thinning for metrics/plots to reduce compute
@@ -199,7 +200,7 @@ def sample_truncnorm_a(rng: np.random.Generator, mean: float, sd: float, low: fl
 
 
 def sample_prior_theta(rng: np.random.Generator, prior: PriorConfig) -> Dict[str, float]:
-    a = float(sample_truncnorm_a(rng, prior.a_mean, prior.a_sd, prior.a_low, prior.a_high))
+    a = float(sample_truncnorm_a(rng, prior.a_mean, prior.a_scale, prior.a_low, prior.a_high))
     b = float(sample_halfnormal(rng, prior.b_scale))
     L = float(sample_halfnormal(rng, prior.L_scale))
     H = float(sample_halfnormal(rng, prior.H_scale))
@@ -213,7 +214,7 @@ def draw_prior_samples(rng: np.random.Generator, prior: PriorConfig, S: int) -> 
     """
     Returns array of shape (S, 7) in PARAM_NAMES order.
     """
-    a = sample_truncnorm_a(rng, prior.a_mean, prior.a_sd, prior.a_low, prior.a_high, size=S)
+    a = sample_truncnorm_a(rng, prior.a_mean, prior.a_scale, prior.a_low, prior.a_high, size=S)
     b = sample_halfnormal(rng, prior.b_scale, size=S)
     L = sample_halfnormal(rng, prior.L_scale, size=S)
     H = sample_halfnormal(rng, prior.H_scale, size=S)
@@ -260,7 +261,7 @@ data {{
 
   // Prior hyperparameters passed from Python
   real a_mean;
-  real<lower=0> a_sd;
+  real<lower=0> a_scale;
   real<lower=0> a_low;
   real<lower=0> a_high;
 
@@ -284,7 +285,7 @@ parameters {{
 
 model {{
   // TruncatedNormal for a via normal prior + bounds on parameter
-  a ~ normal(a_mean, a_sd);
+  a ~ normal(a_mean, a_scale);
 
   // HalfNormal implemented as normal(0, scale) with lower=0 parameter
   b ~ normal(0, b_scale);
@@ -334,7 +335,7 @@ def stan_data_from_history(
         "x": x_hist.tolist() if N > 0 else [],
         "y": y_hist.tolist() if N > 0 else [],
         "a_mean": prior.a_mean,
-        "a_sd": prior.a_sd,
+        "a_scale": prior.a_scale,
         "a_low": prior.a_low,
         "a_high": prior.a_high,
         "b_scale": prior.b_scale,
@@ -551,8 +552,8 @@ def default_policy(history: List[Tuple[float, float]]) -> float:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load the raw PyTorch model (no implicit .eval())
-    mlrun_path = "mlruns/211969978712522983/9cc4c8c9fc14401780f2b32cbfc5ebe0/artifacts/model"
-    pth = "/home/dantwili/repos/dad/" + mlrun_path + "/data/model.pth"
+    mlrun_path = "mlruns/250577988941689306/d748591dcf384679ba786cd940e22a36/artifacts/model"
+    pth = "/home/dantwili/repos/hbmep_dad/" + mlrun_path + "/data/model.pth"
     mep_model = torch.load(pth, map_location=device).to(device)
 
     design_net = mep_model.design_net
@@ -613,7 +614,7 @@ def ensure_dir(p: Path) -> None:
 def title_block(sim: SimConfig, prior: PriorConfig, mcmc: MCMCConfig, eig: EIGConfig, entropy: EntropyConfig) -> str:
     return (
         f"R={sim.R}, T={sim.T} | "
-        f"Priors: a~TN({prior.a_mean},{prior.a_sd})[{prior.a_low},{prior.a_high}], "
+        f"Priors: a~TN({prior.a_mean},{prior.a_scale})[{prior.a_low},{prior.a_high}], "
         f"b~HN({prior.b_scale}), L~HN({prior.L_scale}), H~HN({prior.H_scale}), "
         f"ell~HN({prior.ell_scale}), c1~HN({prior.c1_scale}), c2~HN({prior.c2_scale}) | "
         f"MCMC: chains={mcmc.chains}, samp={mcmc.num_samples}, warmup={mcmc.warmup_steps}, "
@@ -658,7 +659,7 @@ def plot_mean_entropy(
 
     plt.xlabel("t")
     plt.ylabel("Posterior entropy H(theta | h_t)")
-    plt.title("Mean Posterior Entropy vs t\n" + title_block(sim, prior, mcmc, eig, entropy_cfg))
+    plt.title("Mean Posterior Entropy vs t")
     plt.legend()
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
@@ -698,9 +699,10 @@ def plot_rmse_a(
             alpha=0.9,
         )
 
+    plt.ylim(bottom=0)
     plt.xlabel("t")
     plt.ylabel("RMSE of threshold a")
-    plt.title("RMSE(a) vs t\n" + title_block(sim, prior, mcmc, eig, entropy_cfg))
+    plt.title("RMSE(a) vs t")
     plt.legend()
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
@@ -716,9 +718,9 @@ def plot_posterior_predictive_frames(
     """
     tracked contains:
       - true_theta: (7,)
-      - x_hist: (num_initial_samples+T,)
-      - y_hist: (num_initial_samples+T,)
-      - draws_list: list length (num_initial_samples+T+1), starting from prior
+      - x_hist: (num_initial_total+T,)
+      - y_hist: (num_initial_total+T,)
+      - draws_list: list length (num_initial_total+T+1), starting from prior
     """
     ensure_dir(frames_dir)
     theta_true = tracked["true_theta"]
@@ -908,8 +910,8 @@ def run_strategy(
     entropy_cfg: EntropyConfig,
     policy_fn: Optional[Callable[[List[Tuple[float, float]]], float]] = None,
     true_theta_fixed: Optional[np.ndarray] = None,
-    initial_x: Optional[np.ndarray] = None,  # (R, num_initial_samples)
-    initial_y: Optional[np.ndarray] = None,  # (R, num_initial_samples)
+    initial_x: Optional[np.ndarray] = None,  # (R, num_initial_total)
+    initial_y: Optional[np.ndarray] = None,  # (R, num_initial_total)
 ) -> Dict:
     """
     Returns dict with:
@@ -919,10 +921,10 @@ def run_strategy(
       entropy:     (R,T+1) float
       a_mean:      (R,T+1) float
       se_a:        (R,T+1) float
-      tracked:     dict per tracked run with draws_list for frames
+            tracked_runs: list length R with per-run draws/history for frames
     """
     R, T = sim.R, sim.T
-    m0 = int(sim.num_initial_samples)
+    m0 = int(sim.num_initial_zero + sim.num_initial_uniform)
     total_len = m0 + T
     histories_x = np.full((R, total_len), np.nan, dtype=float)
     histories_y = np.full((R, total_len), np.nan, dtype=float)
@@ -932,12 +934,15 @@ def run_strategy(
     a_mean = np.full((R, T + 1), np.nan, dtype=float)
     se_a = np.full((R, T + 1), np.nan, dtype=float)
 
-    tracked = {
-        "true_theta": None,
-        "x_hist": None,
-        "y_hist": None,
-        "draws_list": [],  # length (num_initial_samples+T+1) for tracked run
-    }
+    tracked_runs: List[Dict] = [
+        {
+            "true_theta": None,
+            "x_hist": None,
+            "y_hist": None,
+            "draws_list": [],
+        }
+        for _ in range(R)
+    ]
 
     runs_pbar = tqdm(range(R), desc=f"{strategy_name}: runs", leave=True)
 
@@ -954,11 +959,13 @@ def run_strategy(
         prior_draws = draw_prior_samples(rng, prior, S=min(sim.max_draws_for_metrics, 3000))
         # Strategy-time t=0 metrics will be computed after applying initial samples.
 
-        if r == sim.tracked_run_idx:
-            tracked["true_theta"] = theta_vec.copy()
-            tracked["x_hist"] = np.full(total_len, np.nan, dtype=float)
-            tracked["y_hist"] = np.full(total_len, np.nan, dtype=float)
-            tracked["draws_list"] = []
+        tracked_run = {
+            "true_theta": theta_vec.copy(),
+            "x_hist": np.full(total_len, np.nan, dtype=float),
+            "y_hist": np.full(total_len, np.nan, dtype=float),
+            "draws_list": [],
+        }
+        tracked_runs[r] = tracked_run
 
         x_hist: List[float] = []
         y_hist: List[float] = []
@@ -968,16 +975,15 @@ def run_strategy(
         # -------------------------------------------------
         if m0 > 0:
             if initial_x is None or initial_y is None:
-                raise ValueError("initial_x/initial_y must be provided when num_initial_samples > 0")
+                raise ValueError("initial_x/initial_y must be provided when num_initial_total > 0")
             x0 = np.asarray(initial_x[r], dtype=float).tolist()
             y0 = np.asarray(initial_y[r], dtype=float).tolist()
             x_hist.extend(x0)
             y_hist.extend(y0)
             histories_x[r, :m0] = np.array(x0, dtype=float)
             histories_y[r, :m0] = np.array(y0, dtype=float)
-            if r == sim.tracked_run_idx:
-                tracked["x_hist"][:m0] = np.array(x0, dtype=float)
-                tracked["y_hist"][:m0] = np.array(y0, dtype=float)
+            tracked_run["x_hist"][:m0] = np.array(x0, dtype=float)
+            tracked_run["y_hist"][:m0] = np.array(y0, dtype=float)
 
         # -------------------------------------------------
         # Build tracked frames for negative t (tracked run only)
@@ -985,20 +991,19 @@ def run_strategy(
         # draws_list[0] corresponds to t=-m0 (prior)
         # draws_list[k] corresponds to t=-m0+k
         # -------------------------------------------------
-        if r == sim.tracked_run_idx:
-            tracked["draws_list"].append(
-                prior_draws[: min(prior_draws.shape[0], sim.max_draws_for_frames)].copy()
+        tracked_run["draws_list"].append(
+            prior_draws[: min(prior_draws.shape[0], sim.max_draws_for_frames)].copy()
+        )
+        for k in range(1, m0 + 1):
+            post_k = fit_posterior_stan(
+                stan_model,
+                np.array(x_hist[:k], dtype=float),
+                np.array(y_hist[:k], dtype=float),
+                prior,
+                mcmc,
             )
-            for k in range(1, m0 + 1):
-                post_k = fit_posterior_stan(
-                    stan_model,
-                    np.array(x_hist[:k], dtype=float),
-                    np.array(y_hist[:k], dtype=float),
-                    prior,
-                    mcmc,
-                )
-                post_k = maybe_subsample_rows(rng, post_k, sim.max_draws_for_frames)
-                tracked["draws_list"].append(post_k.copy())
+            post_k = maybe_subsample_rows(rng, post_k, sim.max_draws_for_frames)
+            tracked_run["draws_list"].append(post_k.copy())
 
         # -------------------------------------------------
         # Strategy-time t=0 metrics: posterior after initial samples
@@ -1024,9 +1029,14 @@ def run_strategy(
                 x_t = float(rng.uniform(0.0, 100.0))
 
             elif strategy_name.lower() == "myopic_eig":
-                # Fit posterior at step t-1 (unless t=1, where history empty)
+                # Fit posterior given history up to time t-1.
+                # If we have initial samples, then at t=1 we must condition on them (not the prior).
                 if t == 1:
-                    post_draws = prior_draws
+                    if len(x_hist) == 0:
+                        post_draws = prior_draws
+                    else:
+                        # Reuse t=0 posterior (after initial samples) for efficiency.
+                        post_draws = post_draws_t0
                 else:
                     post_draws = fit_posterior_stan(
                         stan_model,
@@ -1078,12 +1088,11 @@ def run_strategy(
             se_a[r, t] = (a_mean[r, t] - theta_vec[0]) ** 2
 
             # Tracked frames data
-            if r == sim.tracked_run_idx:
-                tracked["x_hist"][idx] = x_t
-                tracked["y_hist"][idx] = y_t
-                tracked["draws_list"].append(
-                    post_draws[: min(post_draws.shape[0], sim.max_draws_for_frames)].copy()
-                )
+            tracked_run["x_hist"][idx] = x_t
+            tracked_run["y_hist"][idx] = y_t
+            tracked_run["draws_list"].append(
+                post_draws[: min(post_draws.shape[0], sim.max_draws_for_frames)].copy()
+            )
 
     return {
         "histories_x": histories_x,
@@ -1092,7 +1101,8 @@ def run_strategy(
         "entropy": entropy,
         "a_mean": a_mean,
         "se_a": se_a,
-        "tracked": tracked,
+        "tracked_runs": np.array(tracked_runs, dtype=object),
+        "tracked": tracked_runs[int(np.clip(sim.tracked_run_idx, 0, R - 1))],
     }
 
 
@@ -1145,6 +1155,7 @@ def save_results(
         save_dict[f"{strat}_a_mean"] = res["a_mean"]
         save_dict[f"{strat}_se_a"] = res["se_a"]
         save_dict[f"{strat}_tracked"] = np.array([res["tracked"]], dtype=object)
+        save_dict[f"{strat}_tracked_runs"] = res["tracked_runs"]
 
     if npz_path.exists() or json_path.exists():
         raise RuntimeError(f"Refusing to overwrite existing results: {npz_path} or {json_path}")
@@ -1177,7 +1188,8 @@ if __name__ == "__main__":
     parser.add_argument("--T", type=int, default=20)
     parser.add_argument("--out_dir", type=str, default="output")
     parser.add_argument("--tracked_run_idx", type=int, default=0)
-    parser.add_argument("--num_initial_samples", type=int, default=0)
+    parser.add_argument("--num_initial_zero", type=int, default=8)
+    parser.add_argument("--num_initial_uniform", type=int, default=3)
 
     # MCMC
     parser.add_argument("--chains", type=int, default=4)
@@ -1202,7 +1214,8 @@ if __name__ == "__main__":
     sim = SimConfig(
         R=args.R,
         T=args.T,
-        num_initial_samples=args.num_initial_samples,
+        num_initial_uniform=args.num_initial_uniform,
+        num_initial_zero=args.num_initial_zero,
         out_dir=args.out_dir,
         tracked_run_idx=args.tracked_run_idx,
     )
@@ -1237,16 +1250,21 @@ if __name__ == "__main__":
     ])
 
     # Shared initial samples across strategies (per run)
-    m0 = int(sim.num_initial_samples)
+    m_zero = int(args.num_initial_zero)
+    m_unif = int(args.num_initial_uniform)
+    m0 = m_zero + m_unif
     if m0 > 0:
         rng_init = np.random.default_rng(mcmc.seed + 2026)
-        initial_x = rng_init.uniform(0.0, 100.0, size=(sim.R, m0)).astype(float)
+        initial_x = np.zeros((sim.R, m0), dtype=float)
+        if m_unif > 0:
+            initial_x[:, m_zero:] = rng_init.uniform(0.0, 100.0, size=(sim.R, m_unif)).astype(float)
+
         initial_y = np.zeros((sim.R, m0), dtype=float)
         for r in range(sim.R):
             theta_vec = true_theta_fixed[r]
             a, b, L, H, ell, c1, c2 = theta_vec
             for j in range(m0):
-                xj = float(initial_x[r, j])
+                xj = float(initial_x[r, j])  # first m_zero are exactly 0.0
                 muj = float(stable_mu(np.array([xj]), a, b, L, H, ell, mu_floor=sim.mu_floor)[0])
                 initial_y[r, j] = simulate_y(rng_init, muj, float(c1), float(c2), mu_floor=sim.mu_floor)
     else:
@@ -1292,26 +1310,31 @@ if __name__ == "__main__":
     plot_mean_entropy(plots_dir / "A_mean_entropy_vs_t.png", entropies, sim, prior, mcmc, eig, entropy_cfg)
     plot_rmse_a(plots_dir / "B_rmse_a_vs_t.png", se_a, sim, prior, mcmc, eig, entropy_cfg)
 
-    # Required frames C and D (per strategy, tracked run)
+    # Required frames C and D (per strategy, per run)
     frames_root = run_dir / "figures" / "frames"
     ensure_dir(frames_root)
 
     for strat_name, res in results_by_strategy.items():
-        tracked = res["tracked"]
-        if tracked["true_theta"] is None:
-            continue
-
         # Frame t values: t=-m0,...,-1,0,...,T
-        m0 = int(sim.num_initial_samples)
+        m0 = int(sim.num_initial_zero + sim.num_initial_uniform)
         t_values = list(range(-m0, sim.T + 1))
+        tracked_runs = res.get("tracked_runs", None)
+        if tracked_runs is None:
+            tracked_runs = np.array([res["tracked"]], dtype=object)
 
-        # C) predictive frames
-        pred_dir = frames_root / strat_name / "posterior_predictive"
-        plot_posterior_predictive_frames(pred_dir, strat_name, tracked, sim, t_values=t_values)
+        for run_idx, tracked in enumerate(tracked_runs):
+            if tracked is None or tracked.get("true_theta", None) is None:
+                continue
 
-        # D) posterior-a frames
-        a_dir = frames_root / strat_name / "posterior_a"
-        plot_posterior_a_frames(a_dir, strat_name, tracked, sim, t_values=t_values)
+            run_dir_frames = frames_root / strat_name / f"run_{run_idx:03d}"
+
+            # C) predictive frames
+            pred_dir = run_dir_frames / "posterior_predictive"
+            plot_posterior_predictive_frames(pred_dir, strat_name, tracked, sim, t_values=t_values)
+
+            # D) posterior-a frames
+            a_dir = run_dir_frames / "posterior_a"
+            plot_posterior_a_frames(a_dir, strat_name, tracked, sim, t_values=t_values)
 
     # Print summary paths
     print(str(npz_path))
