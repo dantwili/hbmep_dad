@@ -14,12 +14,13 @@ Outputs:
   - Timestamped metadata .json
   - Plots:
       A) Mean posterior entropy vs t
-      B) RMSE of threshold a vs t
+            B) MAE of threshold a vs t (with ±1 MAD bars)
     C) Posterior predictive frames (per strategy, per run)
     D) Posterior of a frames (per strategy, per run)
+        E) MAE vs t (with ±1 MAD bars) for all parameters
 
 Requires:
-  numpy, scipy, matplotlib, tqdm, cmdstanpy, sklearn (optional for kNN entropy)
+    numpy, scipy, matplotlib, tqdm, cmdstanpy, sklearn (optional for kNN/GMM entropy)
 """
 
 from __future__ import annotations
@@ -55,6 +56,12 @@ logger = logging.getLogger("cmdstanpy")
 logger.addHandler(logging.NullHandler())
 logger.propagate = False
 logger.setLevel(logging.CRITICAL)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+mlrun_path = "mlruns/925253941232618723/474bb752a2464faeb6615282b5cf0c36/artifacts/model"
+pth = "/home/dantwili/repos/hbmep_dad/" + mlrun_path + "/data/model.pth"
+mep_model = torch.load(pth, map_location=device).to(device)
+design_net = mep_model.design_net
 
 
 # =========================
@@ -102,6 +109,11 @@ class EIGConfig:
 class EntropyConfig:
     method: str = "gaussian"      # "gaussian" or "knn"
     knn_k: int = 5                # used if method="knn"
+    # Gaussian-mixture entropy settings (used if method="gmm")
+    gmm_n_components: int = 3
+    gmm_reg_covar: float = 1e-6
+    gmm_max_iter: int = 300
+    gmm_mc_samples: int = 2000
     # small jitter for covariance stability:
     cov_jitter: float = 1e-8
 
@@ -434,11 +446,61 @@ def entropy_knn(draws: np.ndarray, k: int = 5) -> float:
     return float(digamma(n) - digamma(k) + np.log(V_d) + d * np.mean(np.log(eps)))
 
 
+def entropy_gmm(
+    draws: np.ndarray,
+    n_components: int = 3,
+    reg_covar: float = 1e-6,
+    max_iter: int = 300,
+    mc_samples: int = 2000,
+) -> float:
+    """
+    Differential entropy estimate using a fitted Gaussian Mixture Model.
+
+    Fit q(theta) = Σ_k w_k N(theta | μ_k, Σ_k), then estimate
+      H[q] = -E_q[log q(theta)]
+    by Monte Carlo samples drawn from q.
+    """
+    try:
+        from sklearn.mixture import GaussianMixture
+    except Exception as e:
+        raise RuntimeError(
+            "sklearn is required for GMM entropy. Install scikit-learn or use method='gaussian'/'knn'."
+        ) from e
+
+    X = np.asarray(draws, dtype=float)
+    n, _ = X.shape
+    if n < 2:
+        return float("nan")
+
+    n_comp = max(1, min(int(n_components), n))
+    gmm = GaussianMixture(
+        n_components=n_comp,
+        covariance_type="full",
+        reg_covar=float(reg_covar),
+        max_iter=int(max_iter),
+        random_state=0,
+    )
+    gmm.fit(X)
+
+    m = max(10, int(mc_samples))
+    sample_x, _ = gmm.sample(n_samples=m)
+    log_q = gmm.score_samples(sample_x)  # log density under fitted mixture
+    return float(-np.mean(log_q))
+
+
 def estimate_entropy(draws: np.ndarray, cfg: EntropyConfig) -> float:
     if cfg.method.lower() == "gaussian":
         return entropy_gaussian(draws, jitter=cfg.cov_jitter)
     if cfg.method.lower() == "knn":
         return entropy_knn(draws, k=cfg.knn_k)
+    if cfg.method.lower() == "gmm":
+        return entropy_gmm(
+            draws,
+            n_components=cfg.gmm_n_components,
+            reg_covar=cfg.gmm_reg_covar,
+            max_iter=cfg.gmm_max_iter,
+            mc_samples=cfg.gmm_mc_samples,
+        )
     raise ValueError(f"Unknown entropy method: {cfg.method}")
 
 
@@ -548,19 +610,7 @@ def choose_x_myopic_eig(
 # Policy hook
 # =========================
 
-def default_policy(history: List[Tuple[float, float]]) -> float:
-    """
-    Placeholder policy. Users should replace with their own policy(history)->x_next.
-    """
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Load the raw PyTorch model (no implicit .eval())
-    mlrun_path = "mlruns/925253941232618723/474bb752a2464faeb6615282b5cf0c36/artifacts/model"
-    pth = "/home/dantwili/repos/hbmep_dad/" + mlrun_path + "/data/model.pth"
-    mep_model = torch.load(pth, map_location=device).to(device)
-
-    design_net = mep_model.design_net
-
+def dad_policy(history: List[Tuple[float, float]]) -> float:
     # Build tensors in the same shapes used during training
     xi_designs = [torch.tensor([[[float(x)]]], device=device) for x, _ in history]
     y_outcomes = [torch.tensor([[float(y)]], device=device) for _, y in history]
@@ -668,33 +718,26 @@ def plot_mean_entropy(
     fig.savefig(out_path, dpi=200)
     plt.close(fig)
 
-def plot_rmse_a(
-    out_path: Path,
-    se_a: Dict[str, np.ndarray],  # strategy -> (R,T+1) squared error
+def plot_mae_param(
+    ax: plt.Axes,
+    abs_err: Dict[str, np.ndarray],  # strategy -> (R,T+1,7)
+    param_idx: int,
+    param_name: str,
     sim: SimConfig,
-    prior: PriorConfig,
-    mcmc: MCMCConfig,
-    eig: EIGConfig,
-    entropy_cfg: EntropyConfig,
 ) -> None:
-    fig, ax = plt.subplots()
     t = np.arange(sim.T + 1)
 
-    for name, arr in se_a.items():
-        rmse = np.sqrt(np.nanmean(arr, axis=0))
-        rmse_per_run = np.sqrt(arr)
-        se = np.nanstd(rmse_per_run, axis=0, ddof=1) / np.sqrt(arr.shape[0])
+    for strategy_name, arr in abs_err.items():
+        values = arr[:, :, param_idx]  # (R,T+1)
+        mae = np.nanmean(values, axis=0)
+        mad = np.nanmean(np.abs(values - mae[None, :]), axis=0)
 
-        line = ax.plot(t, rmse, linewidth=2.0, label=name)[0]
-
-        # Solid dots
-        ax.scatter(t, rmse, s=25, color=line.get_color(), zorder=3)
-
-        # Small vertical SE bars with caps
+        line = ax.plot(t, mae, linewidth=2.0, label=strategy_name)[0]
+        ax.scatter(t, mae, s=25, color=line.get_color(), zorder=3)
         ax.errorbar(
             t,
-            rmse,
-            yerr=se,
+            mae,
+            yerr=mad,
             fmt="none",
             ecolor=line.get_color(),
             elinewidth=1.2,
@@ -704,10 +747,52 @@ def plot_rmse_a(
 
     ax.set_ylim(bottom=0)
     ax.set_xlabel("t")
-    ax.set_ylabel("RMSE of threshold a")
-    ax.set_title("RMSE(a) vs t")
+    ax.set_ylabel(f"MAE of {param_name}")
+    ax.set_title(f"MAE({param_name}) vs t")
+
+
+def plot_mae_a(
+    out_path: Path,
+    abs_err: Dict[str, np.ndarray],  # strategy -> (R,T+1,7)
+    sim: SimConfig,
+    prior: PriorConfig,
+    mcmc: MCMCConfig,
+    eig: EIGConfig,
+    entropy_cfg: EntropyConfig,
+) -> None:
+    fig, ax = plt.subplots()
+    plot_mae_param(ax, abs_err, param_idx=0, param_name="a", sim=sim)
     ax.legend()
     fig.tight_layout()
+    fig.savefig(out_path, dpi=200)
+    plt.close(fig)
+
+
+def plot_mae_all_params(
+    out_path: Path,
+    abs_err: Dict[str, np.ndarray],  # strategy -> (R,T+1,7)
+    sim: SimConfig,
+) -> None:
+    n_params = len(PARAM_NAMES)
+    n_cols = 3
+    n_rows = int(np.ceil(n_params / n_cols))
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, 4.5 * n_rows), squeeze=False)
+    for i, param_name in enumerate(PARAM_NAMES):
+        r = i // n_cols
+        c = i % n_cols
+        ax = axes[r, c]
+        plot_mae_param(ax, abs_err, param_idx=i, param_name=param_name, sim=sim)
+        if i == 0:
+            ax.legend(loc="best")
+
+    for j in range(n_params, n_rows * n_cols):
+        r = j // n_cols
+        c = j % n_cols
+        axes[r, c].axis("off")
+
+    fig.suptitle("MAE vs t with ±1 MAD bars (all parameters)")
+    fig.tight_layout(rect=[0, 0, 1, 0.98])
     fig.savefig(out_path, dpi=200)
     plt.close(fig)
 
@@ -822,7 +907,7 @@ def draw_posterior_a_frame(
     ax1.set_xlim(0, 100)
     ax1.set_ylim(y1_min, y1_max)
     ax1.set_xlabel("Intensity x")
-    ax1.set_ylabel("True μ(x)")
+    ax1.set_ylabel("MEP size")
 
     draws = draws_list[frame_idx]
     a_samp = draws[:, 0]
@@ -962,17 +1047,17 @@ def save_all_figures_pdf(
     max_rows_per_page = max(1, int(sim.pdf_rows_per_page))
 
     with PdfPages(pdf_path) as pdf:
-        # Page 1: summary plots (A and B)
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+        # Page 1: entropy summary (A)
+        fig, ax = plt.subplots(1, 1, figsize=(10, 5))
 
         t = np.arange(sim.T + 1)
         entropies = {k: v["entropy"] for k, v in results_by_strategy.items()}
         for name, arr in entropies.items():
             mean = np.nanmean(arr, axis=0)
             se = np.nanstd(arr, axis=0, ddof=1) / np.sqrt(arr.shape[0])
-            line = axes[0].plot(t, mean, linewidth=2.0, label=name)[0]
-            axes[0].scatter(t, mean, s=25, color=line.get_color(), zorder=3)
-            axes[0].errorbar(
+            line = ax.plot(t, mean, linewidth=2.0, label=name)[0]
+            ax.scatter(t, mean, s=25, color=line.get_color(), zorder=3)
+            ax.errorbar(
                 t,
                 mean,
                 yerr=se,
@@ -982,38 +1067,38 @@ def save_all_figures_pdf(
                 capsize=3,
                 alpha=0.9,
             )
-        axes[0].set_xlabel("t")
-        axes[0].set_ylabel("Posterior entropy H(theta | h_t)")
-        axes[0].set_title("Mean Posterior Entropy vs t")
-        axes[0].legend()
+        ax.set_xlabel("t")
+        ax.set_ylabel("Posterior entropy H(theta | h_t)")
+        ax.set_title("Mean Posterior Entropy vs t")
+        ax.legend()
 
-        se_a = {k: v["se_a"] for k, v in results_by_strategy.items()}
-        for name, arr in se_a.items():
-            rmse = np.sqrt(np.nanmean(arr, axis=0))
-            rmse_per_run = np.sqrt(arr)
-            se = np.nanstd(rmse_per_run, axis=0, ddof=1) / np.sqrt(arr.shape[0])
-            line = axes[1].plot(t, rmse, linewidth=2.0, label=name)[0]
-            axes[1].scatter(t, rmse, s=25, color=line.get_color(), zorder=3)
-            axes[1].errorbar(
-                t,
-                rmse,
-                yerr=se,
-                fmt="none",
-                ecolor=line.get_color(),
-                elinewidth=1.2,
-                capsize=3,
-                alpha=0.9,
-            )
-        axes[1].set_ylim(bottom=0)
-        axes[1].set_xlabel("t")
-        axes[1].set_ylabel("RMSE of threshold a")
-        axes[1].set_title("RMSE(a) vs t")
-        axes[1].legend()
-
-        fig.suptitle("Summary Figures")
-        fig.tight_layout(rect=[0, 0, 1, 0.97])
+        fig.suptitle("Summary Figure A")
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
         pdf.savefig(fig, dpi=200)
         plt.close(fig)
+
+        # Page 2: all error plots (B and additional parameters)
+        abs_err = {k: v["abs_err"] for k, v in results_by_strategy.items()}
+        n_params = len(PARAM_NAMES)
+        n_cols = 3
+        n_rows = int(np.ceil(n_params / n_cols))
+        fig_err, axes_err = plt.subplots(n_rows, n_cols, figsize=(18, 4.5 * n_rows), squeeze=False)
+        for i, param_name in enumerate(PARAM_NAMES):
+            r = i // n_cols
+            c = i % n_cols
+            ax_err = axes_err[r, c]
+            plot_mae_param(ax_err, abs_err, param_idx=i, param_name=param_name, sim=sim)
+            if i == 0:
+                ax_err.legend(loc="best")
+        for j in range(n_params, n_rows * n_cols):
+            r = j // n_cols
+            c = j % n_cols
+            axes_err[r, c].axis("off")
+
+        fig_err.suptitle("MAE vs t with ±1 MAD bars (all parameters)")
+        fig_err.tight_layout(rect=[0, 0, 1, 0.98])
+        pdf.savefig(fig_err, dpi=200)
+        plt.close(fig_err)
 
         tracked_runs_by_strategy = {}
         for strat_name, res in results_by_strategy.items():
@@ -1128,8 +1213,8 @@ def run_strategy(
       histories_y: (R,T) float
       true_theta:  (R,7) float
       entropy:     (R,T+1) float
-      a_mean:      (R,T+1) float
-      se_a:        (R,T+1) float
+            param_mean:  (R,T+1,7) float
+            abs_err:     (R,T+1,7) float
             tracked_runs: list length R with per-run draws/history for frames
     """
     R, T = sim.R, sim.T
@@ -1140,8 +1225,8 @@ def run_strategy(
     true_theta = np.zeros((R, 7), dtype=float)
 
     entropy = np.full((R, T + 1), np.nan, dtype=float)
-    a_mean = np.full((R, T + 1), np.nan, dtype=float)
-    se_a = np.full((R, T + 1), np.nan, dtype=float)
+    param_mean = np.full((R, T + 1, 7), np.nan, dtype=float)
+    abs_err = np.full((R, T + 1, 7), np.nan, dtype=float)
 
     tracked_runs: List[Dict] = [
         {
@@ -1229,8 +1314,9 @@ def run_strategy(
             )
         post_draws_t0 = maybe_subsample_rows(rng, post_draws_t0, sim.max_draws_for_metrics)
         entropy[r, 0] = estimate_entropy(post_draws_t0, entropy_cfg)
-        a_mean[r, 0] = float(np.mean(post_draws_t0[:, 0]))
-        se_a[r, 0] = (a_mean[r, 0] - theta_vec[0]) ** 2
+        pm_t0 = np.mean(post_draws_t0, axis=0)
+        param_mean[r, 0, :] = pm_t0
+        abs_err[r, 0, :] = np.abs(pm_t0 - theta_vec)
 
         for t in tqdm(range(1, T + 1), desc=f"{strategy_name}: t", leave=False):
             # Choose x_t
@@ -1259,7 +1345,7 @@ def run_strategy(
 
             elif strategy_name.lower() == "policy":
                 if policy_fn is None:
-                    policy_fn = default_policy
+                    policy_fn = dad_policy
                 x_t = float(policy_fn(list(zip(x_hist, y_hist))))
                 x_t = float(np.clip(x_t, 0.0, 100.0))
 
@@ -1293,8 +1379,9 @@ def run_strategy(
 
             # Metrics
             entropy[r, t] = estimate_entropy(post_draws, entropy_cfg)
-            a_mean[r, t] = float(np.mean(post_draws[:, 0]))
-            se_a[r, t] = (a_mean[r, t] - theta_vec[0]) ** 2
+            pm_t = np.mean(post_draws, axis=0)
+            param_mean[r, t, :] = pm_t
+            abs_err[r, t, :] = np.abs(pm_t - theta_vec)
 
             # Tracked frames data
             tracked_run["x_hist"][idx] = x_t
@@ -1308,8 +1395,10 @@ def run_strategy(
         "histories_y": histories_y,
         "true_theta": true_theta,
         "entropy": entropy,
-        "a_mean": a_mean,
-        "se_a": se_a,
+        "param_mean": param_mean,
+        "abs_err": abs_err,
+        "a_mean": param_mean[:, :, 0],
+        "ae_a": abs_err[:, :, 0],
         "tracked_runs": np.array(tracked_runs, dtype=object),
         "tracked": tracked_runs[int(np.clip(sim.tracked_run_idx, 0, R - 1))],
     }
@@ -1361,8 +1450,10 @@ def save_results(
         save_dict[f"{strat}_histories_y"] = res["histories_y"]
         save_dict[f"{strat}_true_theta"] = res["true_theta"]
         save_dict[f"{strat}_entropy"] = res["entropy"]
+        save_dict[f"{strat}_param_mean"] = res["param_mean"]
+        save_dict[f"{strat}_abs_err"] = res["abs_err"]
         save_dict[f"{strat}_a_mean"] = res["a_mean"]
-        save_dict[f"{strat}_se_a"] = res["se_a"]
+        save_dict[f"{strat}_ae_a"] = res["ae_a"]
         save_dict[f"{strat}_tracked"] = np.array([res["tracked"]], dtype=object)
         save_dict[f"{strat}_tracked_runs"] = res["tracked_runs"]
 
@@ -1415,8 +1506,12 @@ if __name__ == "__main__":
     parser.add_argument("--M_inner", type=int, default=128)
 
     # Entropy
-    parser.add_argument("--entropy_method", type=str, default="knn", choices=["gaussian", "knn"])
+    parser.add_argument("--entropy_method", type=str, default="knn", choices=["gaussian", "knn", "gmm"])
     parser.add_argument("--knn_k", type=int, default=5)
+    parser.add_argument("--gmm_n_components", type=int, default=3)
+    parser.add_argument("--gmm_reg_covar", type=float, default=1e-6)
+    parser.add_argument("--gmm_max_iter", type=int, default=300)
+    parser.add_argument("--gmm_mc_samples", type=int, default=2000)
     parser.add_argument("--save_to", type=str, default="images", choices=["pdf", "images", "both"])
     parser.add_argument("--pdf_rows_per_page", type=int, default=4)
 
@@ -1443,7 +1538,14 @@ if __name__ == "__main__":
         parallel_chains=args.parallel_chains,
     )
     eig = EIGConfig(K_grid=args.K_grid, N_outer=args.N_outer, M_inner=args.M_inner)
-    entropy_cfg = EntropyConfig(method=args.entropy_method, knn_k=args.knn_k)
+    entropy_cfg = EntropyConfig(
+        method=args.entropy_method,
+        knn_k=args.knn_k,
+        gmm_n_components=args.gmm_n_components,
+        gmm_reg_covar=args.gmm_reg_covar,
+        gmm_max_iter=args.gmm_max_iter,
+        gmm_mc_samples=args.gmm_mc_samples,
+    )
 
     ts = timestamp_str()
     run_dir = Path(sim.out_dir) / ts
@@ -1488,7 +1590,7 @@ if __name__ == "__main__":
     strategies = {
         "Random": dict(policy_fn=None),
         "Myopic_EIG": dict(policy_fn=None),
-        "Policy": dict(policy_fn=default_policy),  # user can replace in code
+        "Policy": dict(policy_fn=dad_policy),  # user can replace in code
     }
 
     results_by_strategy: Dict[str, Dict] = {}
@@ -1525,9 +1627,10 @@ if __name__ == "__main__":
         # Required plots A, B
         ensure_dir(plots_dir)
         entropies = {k: v["entropy"] for k, v in results_by_strategy.items()}
-        se_a = {k: v["se_a"] for k, v in results_by_strategy.items()}
+        abs_err = {k: v["abs_err"] for k, v in results_by_strategy.items()}
         plot_mean_entropy(plots_dir / "A_mean_entropy_vs_t.png", entropies, sim, prior, mcmc, eig, entropy_cfg)
-        plot_rmse_a(plots_dir / "B_rmse_a_vs_t.png", se_a, sim, prior, mcmc, eig, entropy_cfg)
+        plot_mae_a(plots_dir / "B_mae_a_vs_t.png", abs_err, sim, prior, mcmc, eig, entropy_cfg)
+        plot_mae_all_params(plots_dir / "E_mae_all_params_vs_t.png", abs_err, sim)
 
         # Required frames C and D (per strategy, per run)
         ensure_dir(frames_root)
