@@ -48,6 +48,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+from matplotlib.backends.backend_pdf import PdfPages
 
 import logging
 logger = logging.getLogger("cmdstanpy")
@@ -119,6 +120,8 @@ class SimConfig:
     # Numerical floors
     mu_floor: float = 1e-12
     y_floor: float = 1e-300
+    save_to: str = "images"      # "images", "pdf", or "both"
+    pdf_rows_per_page: int = 4
 
 
 # =========================
@@ -633,20 +636,20 @@ def plot_mean_entropy(
     eig: EIGConfig,
     entropy_cfg: EntropyConfig,
 ) -> None:
-    plt.figure()
+    fig, ax = plt.subplots()
     t = np.arange(sim.T + 1)
 
     for name, arr in entropies.items():
         mean = np.nanmean(arr, axis=0)
         se = np.nanstd(arr, axis=0, ddof=1) / np.sqrt(arr.shape[0])
 
-        line = plt.plot(t, mean, linewidth=2.0, label=name)[0]
+        line = ax.plot(t, mean, linewidth=2.0, label=name)[0]
 
         # Solid dots
-        plt.scatter(t, mean, s=25, color=line.get_color(), zorder=3)
+        ax.scatter(t, mean, s=25, color=line.get_color(), zorder=3)
 
         # Small vertical SE bars with caps
-        plt.errorbar(
+        ax.errorbar(
             t,
             mean,
             yerr=se,
@@ -657,13 +660,13 @@ def plot_mean_entropy(
             alpha=0.9,
         )
 
-    plt.xlabel("t")
-    plt.ylabel("Posterior entropy H(theta | h_t)")
-    plt.title("Mean Posterior Entropy vs t")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=200)
-    plt.close()
+    ax.set_xlabel("t")
+    ax.set_ylabel("Posterior entropy H(theta | h_t)")
+    ax.set_title("Mean Posterior Entropy vs t")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200)
+    plt.close(fig)
 
 def plot_rmse_a(
     out_path: Path,
@@ -674,7 +677,7 @@ def plot_rmse_a(
     eig: EIGConfig,
     entropy_cfg: EntropyConfig,
 ) -> None:
-    plt.figure()
+    fig, ax = plt.subplots()
     t = np.arange(sim.T + 1)
 
     for name, arr in se_a.items():
@@ -682,13 +685,13 @@ def plot_rmse_a(
         rmse_per_run = np.sqrt(arr)
         se = np.nanstd(rmse_per_run, axis=0, ddof=1) / np.sqrt(arr.shape[0])
 
-        line = plt.plot(t, rmse, linewidth=2.0, label=name)[0]
+        line = ax.plot(t, rmse, linewidth=2.0, label=name)[0]
 
         # Solid dots
-        plt.scatter(t, rmse, s=25, color=line.get_color(), zorder=3)
+        ax.scatter(t, rmse, s=25, color=line.get_color(), zorder=3)
 
         # Small vertical SE bars with caps
-        plt.errorbar(
+        ax.errorbar(
             t,
             rmse,
             yerr=se,
@@ -699,14 +702,147 @@ def plot_rmse_a(
             alpha=0.9,
         )
 
-    plt.ylim(bottom=0)
-    plt.xlabel("t")
-    plt.ylabel("RMSE of threshold a")
-    plt.title("RMSE(a) vs t")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=200)
-    plt.close()
+    ax.set_ylim(bottom=0)
+    ax.set_xlabel("t")
+    ax.set_ylabel("RMSE of threshold a")
+    ax.set_title("RMSE(a) vs t")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200)
+    plt.close(fig)
+
+
+def draw_posterior_predictive_frame(
+    ax: plt.Axes,
+    strategy: str,
+    tracked: Dict,
+    sim: SimConfig,
+    frame_idx: int,
+    t: int,
+) -> None:
+    theta_true = tracked["true_theta"]
+    x_hist = tracked["x_hist"]
+    y_hist = tracked["y_hist"]
+    draws_list = tracked["draws_list"]
+
+    x_grid = np.linspace(0.0, 100.0, 400)
+    mu_true = stable_mu(
+        x_grid,
+        theta_true[0], theta_true[1], theta_true[2], theta_true[3], theta_true[4],
+        mu_floor=sim.mu_floor
+    )
+
+    y_min = 0
+    y_max = float(np.max(mu_true) * 1.5 + 1e-6)
+
+    draws = draws_list[frame_idx]
+    draws = draws if draws.shape[0] <= sim.max_draws_for_frames else draws[: sim.max_draws_for_frames]
+
+    mean_pred, sd_pred = posterior_predictive_mean_sd(x_grid, draws, sim)
+    lo = mean_pred - sd_pred
+    hi = mean_pred + sd_pred
+
+    ax.plot(x_grid, mu_true, label="True μ(x)")
+    ax.axvline(theta_true[0], linestyle="--", linewidth=1.0)
+
+    mean_line = ax.plot(x_grid, mean_pred, color="orange", label="Posterior predictive mean")[0]
+    mean_color = mean_line.get_color()
+    ax.fill_between(x_grid, lo, hi, color=mean_color, alpha=0.2, label="±1 SD")
+
+    n_samples = frame_idx
+    if n_samples > 0:
+        ax.scatter(
+            x_hist[:n_samples],
+            y_hist[:n_samples],
+            s=25,
+            color="green",
+            label="Sample",
+        )
+        ax.scatter(
+            [x_hist[n_samples - 1]],
+            [y_hist[n_samples - 1]],
+            marker="*",
+            s=180,
+            color="green",
+            label="Newest sample",
+        )
+
+    ax.set_xlim(0, 100)
+    ax.set_ylim(y_min, y_max)
+    ax.set_xlabel("Intensity x")
+    ax.set_ylabel("MEP size")
+    ax.set_title(f"{strategy} | Posterior Predictive of y | Frame t={t}")
+    ax.legend(loc="best")
+
+
+def draw_posterior_a_frame(
+    ax1: plt.Axes,
+    strategy: str,
+    tracked: Dict,
+    sim: SimConfig,
+    frame_idx: int,
+    t: int,
+) -> None:
+    theta_true = tracked["true_theta"]
+    x_hist = tracked["x_hist"]
+    y_hist = tracked.get("y_hist", None)
+    draws_list = tracked["draws_list"]
+
+    x_grid = np.linspace(0.0, 100.0, 400)
+    mu_true = stable_mu(
+        x_grid,
+        theta_true[0], theta_true[1], theta_true[2], theta_true[3], theta_true[4],
+        mu_floor=sim.mu_floor
+    )
+
+    y1_min = 0.0
+    y1_max = float(np.max(mu_true) * 1.1 + 1e-6)
+    a_eval = np.linspace(0.0, 100.0, 500)
+
+    ax1.plot(x_grid, mu_true, label="True μ(x)")
+
+    n_samples = frame_idx
+    if n_samples > 0 and y_hist is not None:
+        ax1.scatter(
+            x_hist[:n_samples],
+            y_hist[:n_samples],
+            s=25,
+            color="green",
+            label="Sample",
+        )
+        ax1.scatter(
+            [x_hist[n_samples - 1]],
+            [y_hist[n_samples - 1]],
+            marker="*",
+            s=180,
+            color="green",
+            label="Newest sample",
+        )
+
+    ax1.set_xlim(0, 100)
+    ax1.set_ylim(y1_min, y1_max)
+    ax1.set_xlabel("Intensity x")
+    ax1.set_ylabel("True μ(x)")
+
+    draws = draws_list[frame_idx]
+    a_samp = draws[:, 0]
+    if a_samp.size < 2 or np.allclose(np.std(a_samp), 0.0):
+        dens = np.zeros_like(a_eval)
+    else:
+        dens = gaussian_kde(a_samp)(a_eval)
+
+    ax2 = ax1.twinx()
+    ax2.fill_between(a_eval, 0.0, dens, color="orange", alpha=0.15)
+    ax2.plot(a_eval, dens, color="orange", alpha=0.8)
+    ax2.axvline(theta_true[0], linestyle="--", linewidth=1.0)
+
+    dens_max = float(np.max(dens)) if dens.size else 0.0
+    ax2.set_ylim(0.0, max(dens_max * 1.10, 1e-12))
+    ax2.set_ylabel("Posterior density of a")
+    ax2.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
+
+    ax1.set_title(f"{strategy} | Posterior of a | Frame t={t}")
+    ax1.legend(loc="upper left")
 
 def plot_posterior_predictive_frames(
     frames_dir: Path,
@@ -746,55 +882,14 @@ def plot_posterior_predictive_frames(
         raise ValueError("t_values must have the same length as draws_list")
 
     for frame_idx, t in enumerate(t_values):
-        draws = draws_list[frame_idx]
-        draws = draws if draws.shape[0] <= sim.max_draws_for_frames else draws[: sim.max_draws_for_frames]
-
-        mean_pred, sd_pred = posterior_predictive_mean_sd(x_grid, draws, sim)
-        lo = mean_pred - sd_pred
-        hi = mean_pred + sd_pred
-
-        plt.figure()
-        plt.plot(x_grid, mu_true, label="True μ(x)")
-        # Vertical line at true threshold a
-        plt.axvline(theta_true[0], linestyle="--", linewidth=1.0)
-
-        mean_line = plt.plot(x_grid, mean_pred, color="orange", label="Posterior predictive mean")[0]
-        mean_color = mean_line.get_color()
-        # Match the ±1 SD shading color to the posterior mean curve color
-        plt.fill_between(x_grid, lo, hi, color=mean_color, alpha=0.2, label="±1 SD")
-
-        n_samples = frame_idx
-        if n_samples > 0:
-            # Plot the *actual observed responses* (x_i, y_i) as green dots.
-            plt.scatter(
-                x_hist[:n_samples],
-                y_hist[:n_samples],
-                s=25,
-                color="green",
-                label="Sample",
-            )
-            # Newest sample as a larger green star
-            plt.scatter(
-                [x_hist[n_samples - 1]],
-                [y_hist[n_samples - 1]],
-                marker="*",
-                s=180,
-                color="green",
-                label="Newest sample",
-            )
-
-        plt.xlim(0, 100)
-        plt.ylim(y_min, y_max)
-        plt.xlabel("Intensity x")
-        plt.ylabel("MEP size")
-        plt.title(f"{strategy} | Posterior Predictive of y | Frame t={t}")
-        plt.legend(loc="best")
-        plt.tight_layout()
+        fig, ax = plt.subplots()
+        draw_posterior_predictive_frame(ax, strategy, tracked, sim, frame_idx, t)
+        fig.tight_layout()
 
         t_str = f"{t:03d}" if t >= 0 else f"-{abs(t):03d}"
         out_path = frames_dir / f"frame_{frame_idx}_{t_str}.png"
-        plt.savefig(out_path, dpi=200)
-        plt.close()
+        fig.savefig(out_path, dpi=200)
+        plt.close(fig)
 
 
 
@@ -836,62 +931,176 @@ def plot_posterior_a_frames(
         raise ValueError("t_values must have the same length as draws_list")
 
     for frame_idx, t in enumerate(t_values):
-        plt.figure()
-        ax1 = plt.gca()
-
-        ax1.plot(x_grid, mu_true, label="True μ(x)")
-
-        n_samples = frame_idx
-        if n_samples > 0 and y_hist is not None:
-            ax1.scatter(
-                x_hist[:n_samples],
-                y_hist[:n_samples],
-                s=25,
-                color="green",
-                label="Sample",
-            )
-            ax1.scatter(
-                [x_hist[n_samples - 1]],
-                [y_hist[n_samples - 1]],
-                marker="*",
-                s=180,
-                color="green",
-                label="Newest sample",
-            )
-
-
-        ax1.set_xlim(0, 100)
-        ax1.set_ylim(y1_min, y1_max)
-        ax1.set_xlabel("Intensity x")
-        ax1.set_ylabel("True μ(x)")
-
-        draws = draws_list[frame_idx]
-        a_samp = draws[:, 0]
-        if a_samp.size < 2 or np.allclose(np.std(a_samp), 0.0):
-            dens = np.zeros_like(a_eval)
-        else:
-            dens = gaussian_kde(a_samp)(a_eval)
-
-        ax2 = ax1.twinx()
-        # Make posterior density distinct from the μ(x) curve
-        ax2.fill_between(a_eval, 0.0, dens, color="orange", alpha=0.15)
-        ax2.plot(a_eval, dens, color="orange", alpha=0.8)
-        ax2.axvline(theta_true[0], linestyle="--", linewidth=1.0)
-
-        dens_max = float(np.max(dens)) if dens.size else 0.0
-        ax2.set_ylim(0.0, max(dens_max * 1.10, 1e-12))
-        ax2.set_ylabel("Posterior density of a")
-        # Two fixed decimals on the right y-axis
-        ax2.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
-
-        ax1.set_title(f"{strategy} | Posterior of a | Frame t={t}")
-        ax1.legend(loc="upper left")
-        plt.tight_layout()
+        fig, ax1 = plt.subplots()
+        draw_posterior_a_frame(ax1, strategy, tracked, sim, frame_idx, t)
+        fig.tight_layout()
 
         t_str = f"{t:03d}" if t >= 0 else f"-{abs(t):03d}"
         out_path = frames_dir / f"frame_{frame_idx}_{t_str}.png"
-        plt.savefig(out_path, dpi=200)
-        plt.close()
+        fig.savefig(out_path, dpi=200)
+        plt.close(fig)
+
+
+def save_all_figures_pdf(
+    pdf_path: Path,
+    results_by_strategy: Dict[str, Dict],
+    sim: SimConfig,
+    prior: PriorConfig,
+    mcmc: MCMCConfig,
+    eig: EIGConfig,
+    entropy_cfg: EntropyConfig,
+) -> None:
+    ensure_dir(pdf_path.parent)
+
+    strategies = list(results_by_strategy.keys())
+    if len(strategies) != 3:
+        raise ValueError("PDF layout expects exactly 3 strategies (3 columns).")
+
+    m0 = int(sim.num_initial_zero + sim.num_initial_uniform)
+    t_values = list(range(-m0, sim.T + 1))
+    n_rows_total = len(t_values)
+    max_rows_per_page = max(1, int(sim.pdf_rows_per_page))
+
+    with PdfPages(pdf_path) as pdf:
+        # Page 1: summary plots (A and B)
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+        t = np.arange(sim.T + 1)
+        entropies = {k: v["entropy"] for k, v in results_by_strategy.items()}
+        for name, arr in entropies.items():
+            mean = np.nanmean(arr, axis=0)
+            se = np.nanstd(arr, axis=0, ddof=1) / np.sqrt(arr.shape[0])
+            line = axes[0].plot(t, mean, linewidth=2.0, label=name)[0]
+            axes[0].scatter(t, mean, s=25, color=line.get_color(), zorder=3)
+            axes[0].errorbar(
+                t,
+                mean,
+                yerr=se,
+                fmt="none",
+                ecolor=line.get_color(),
+                elinewidth=1.2,
+                capsize=3,
+                alpha=0.9,
+            )
+        axes[0].set_xlabel("t")
+        axes[0].set_ylabel("Posterior entropy H(theta | h_t)")
+        axes[0].set_title("Mean Posterior Entropy vs t")
+        axes[0].legend()
+
+        se_a = {k: v["se_a"] for k, v in results_by_strategy.items()}
+        for name, arr in se_a.items():
+            rmse = np.sqrt(np.nanmean(arr, axis=0))
+            rmse_per_run = np.sqrt(arr)
+            se = np.nanstd(rmse_per_run, axis=0, ddof=1) / np.sqrt(arr.shape[0])
+            line = axes[1].plot(t, rmse, linewidth=2.0, label=name)[0]
+            axes[1].scatter(t, rmse, s=25, color=line.get_color(), zorder=3)
+            axes[1].errorbar(
+                t,
+                rmse,
+                yerr=se,
+                fmt="none",
+                ecolor=line.get_color(),
+                elinewidth=1.2,
+                capsize=3,
+                alpha=0.9,
+            )
+        axes[1].set_ylim(bottom=0)
+        axes[1].set_xlabel("t")
+        axes[1].set_ylabel("RMSE of threshold a")
+        axes[1].set_title("RMSE(a) vs t")
+        axes[1].legend()
+
+        fig.suptitle("Summary Figures")
+        fig.tight_layout(rect=[0, 0, 1, 0.97])
+        pdf.savefig(fig, dpi=200)
+        plt.close(fig)
+
+        tracked_runs_by_strategy = {}
+        for strat_name, res in results_by_strategy.items():
+            tracked_runs = res.get("tracked_runs", None)
+            if tracked_runs is None:
+                tracked_runs = np.array([res["tracked"]], dtype=object)
+            tracked_runs_by_strategy[strat_name] = tracked_runs
+
+        n_runs = min(len(v) for v in tracked_runs_by_strategy.values())
+
+        for run_idx in range(n_runs):
+            # First: all posterior predictive pages for this run
+            page_num = 1
+            for start in range(0, n_rows_total, max_rows_per_page):
+                end = min(start + max_rows_per_page, n_rows_total)
+                page_t_values = t_values[start:end]
+                n_rows_page = len(page_t_values)
+
+                # Page: posterior predictive frames, rows=t, cols=strategy
+                fig_pred, axes_pred = plt.subplots(
+                    n_rows_page,
+                    3,
+                    figsize=(18, max(3.0 * n_rows_page, 6.0)),
+                    squeeze=False,
+                )
+                for col, strat_name in enumerate(strategies):
+                    tracked = tracked_runs_by_strategy[strat_name][run_idx]
+                    if tracked is None or tracked.get("true_theta", None) is None:
+                        for row in range(n_rows_page):
+                            axes_pred[row, col].axis("off")
+                        continue
+                    for row, t_val in enumerate(page_t_values):
+                        frame_idx = start + row
+                        draw_posterior_predictive_frame(
+                            axes_pred[row, col],
+                            strat_name,
+                            tracked,
+                            sim,
+                            frame_idx=frame_idx,
+                            t=t_val,
+                        )
+                fig_pred.suptitle(
+                    f"Posterior Predictive Frames | run={run_idx} | page={page_num} | rows {start + 1}-{end} of {n_rows_total}"
+                )
+                fig_pred.tight_layout(rect=[0, 0, 1, 0.995])
+                pdf.savefig(fig_pred, dpi=200)
+                plt.close(fig_pred)
+
+                page_num += 1
+
+            # Second: all posterior-a pages for this run
+            page_num = 1
+            for start in range(0, n_rows_total, max_rows_per_page):
+                end = min(start + max_rows_per_page, n_rows_total)
+                page_t_values = t_values[start:end]
+                n_rows_page = len(page_t_values)
+
+                fig_a, axes_a = plt.subplots(
+                    n_rows_page,
+                    3,
+                    figsize=(18, max(3.0 * n_rows_page, 6.0)),
+                    squeeze=False,
+                )
+                for col, strat_name in enumerate(strategies):
+                    tracked = tracked_runs_by_strategy[strat_name][run_idx]
+                    if tracked is None or tracked.get("true_theta", None) is None:
+                        for row in range(n_rows_page):
+                            axes_a[row, col].axis("off")
+                        continue
+                    for row, t_val in enumerate(page_t_values):
+                        frame_idx = start + row
+                        draw_posterior_a_frame(
+                            axes_a[row, col],
+                            strat_name,
+                            tracked,
+                            sim,
+                            frame_idx=frame_idx,
+                            t=t_val,
+                        )
+                fig_a.suptitle(
+                    f"Posterior of a Frames | run={run_idx} | page={page_num} | rows {start + 1}-{end} of {n_rows_total}"
+                )
+                fig_a.tight_layout(rect=[0, 0, 1, 0.995])
+                pdf.savefig(fig_a, dpi=200)
+                plt.close(fig_a)
+
+                page_num += 1
 
 
 # =========================
@@ -1208,6 +1417,8 @@ if __name__ == "__main__":
     # Entropy
     parser.add_argument("--entropy_method", type=str, default="knn", choices=["gaussian", "knn"])
     parser.add_argument("--knn_k", type=int, default=5)
+    parser.add_argument("--save_to", type=str, default="images", choices=["pdf", "images", "both"])
+    parser.add_argument("--pdf_rows_per_page", type=int, default=4)
 
     args = parser.parse_args()
 
@@ -1218,6 +1429,8 @@ if __name__ == "__main__":
         num_initial_zero=args.num_initial_zero,
         out_dir=args.out_dir,
         tracked_run_idx=args.tracked_run_idx,
+        save_to=args.save_to,
+        pdf_rows_per_page=args.pdf_rows_per_page,
     )
     prior = PriorConfig()
     mcmc = MCMCConfig(
@@ -1300,44 +1513,50 @@ if __name__ == "__main__":
     # Save raw results
     npz_path, json_path = save_results(run_dir, results_by_strategy, sim, prior, mcmc, eig, entropy_cfg)
 
-    # Required plots A, B
+    save_to = sim.save_to.lower()
+    save_images = save_to in ("images", "both")
+    save_pdf = save_to in ("pdf", "both")
+
     plots_dir = run_dir / "figures" / "plots"
-    ensure_dir(plots_dir)
-
-    entropies = {k: v["entropy"] for k, v in results_by_strategy.items()}
-    se_a = {k: v["se_a"] for k, v in results_by_strategy.items()}
-
-    plot_mean_entropy(plots_dir / "A_mean_entropy_vs_t.png", entropies, sim, prior, mcmc, eig, entropy_cfg)
-    plot_rmse_a(plots_dir / "B_rmse_a_vs_t.png", se_a, sim, prior, mcmc, eig, entropy_cfg)
-
-    # Required frames C and D (per strategy, per run)
     frames_root = run_dir / "figures" / "frames"
-    ensure_dir(frames_root)
+    pdf_path = run_dir / "figures" / "all_figures.pdf"
 
-    for strat_name, res in results_by_strategy.items():
-        # Frame t values: t=-m0,...,-1,0,...,T
-        m0 = int(sim.num_initial_zero + sim.num_initial_uniform)
-        t_values = list(range(-m0, sim.T + 1))
-        tracked_runs = res.get("tracked_runs", None)
-        if tracked_runs is None:
-            tracked_runs = np.array([res["tracked"]], dtype=object)
+    if save_images:
+        # Required plots A, B
+        ensure_dir(plots_dir)
+        entropies = {k: v["entropy"] for k, v in results_by_strategy.items()}
+        se_a = {k: v["se_a"] for k, v in results_by_strategy.items()}
+        plot_mean_entropy(plots_dir / "A_mean_entropy_vs_t.png", entropies, sim, prior, mcmc, eig, entropy_cfg)
+        plot_rmse_a(plots_dir / "B_rmse_a_vs_t.png", se_a, sim, prior, mcmc, eig, entropy_cfg)
 
-        for run_idx, tracked in enumerate(tracked_runs):
-            if tracked is None or tracked.get("true_theta", None) is None:
-                continue
+        # Required frames C and D (per strategy, per run)
+        ensure_dir(frames_root)
+        for strat_name, res in results_by_strategy.items():
+            m0 = int(sim.num_initial_zero + sim.num_initial_uniform)
+            t_values = list(range(-m0, sim.T + 1))
+            tracked_runs = res.get("tracked_runs", None)
+            if tracked_runs is None:
+                tracked_runs = np.array([res["tracked"]], dtype=object)
 
-            run_dir_frames = frames_root / strat_name / f"run_{run_idx:03d}"
+            for run_idx, tracked in enumerate(tracked_runs):
+                if tracked is None or tracked.get("true_theta", None) is None:
+                    continue
 
-            # C) predictive frames
-            pred_dir = run_dir_frames / "posterior_predictive"
-            plot_posterior_predictive_frames(pred_dir, strat_name, tracked, sim, t_values=t_values)
+                run_dir_frames = frames_root / strat_name / f"run_{run_idx:03d}"
+                pred_dir = run_dir_frames / "posterior_predictive"
+                plot_posterior_predictive_frames(pred_dir, strat_name, tracked, sim, t_values=t_values)
 
-            # D) posterior-a frames
-            a_dir = run_dir_frames / "posterior_a"
-            plot_posterior_a_frames(a_dir, strat_name, tracked, sim, t_values=t_values)
+                a_dir = run_dir_frames / "posterior_a"
+                plot_posterior_a_frames(a_dir, strat_name, tracked, sim, t_values=t_values)
+
+    if save_pdf:
+        save_all_figures_pdf(pdf_path, results_by_strategy, sim, prior, mcmc, eig, entropy_cfg)
 
     # Print summary paths
     print(str(npz_path))
     print(str(json_path))
-    print(str(plots_dir))
-    print(str(frames_root))
+    if save_images:
+        print(str(plots_dir))
+        print(str(frames_root))
+    if save_pdf:
+        print(str(pdf_path))
