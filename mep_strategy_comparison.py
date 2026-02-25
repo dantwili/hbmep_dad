@@ -552,7 +552,7 @@ def default_policy(history: List[Tuple[float, float]]) -> float:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load the raw PyTorch model (no implicit .eval())
-    mlrun_path = "mlruns/250577988941689306/d748591dcf384679ba786cd940e22a36/artifacts/model"
+    mlrun_path = "mlruns/925253941232618723/474bb752a2464faeb6615282b5cf0c36/artifacts/model"
     pth = "/home/dantwili/repos/hbmep_dad/" + mlrun_path + "/data/model.pth"
     mep_model = torch.load(pth, map_location=device).to(device)
 
@@ -1206,7 +1206,7 @@ if __name__ == "__main__":
     parser.add_argument("--M_inner", type=int, default=128)
 
     # Entropy
-    parser.add_argument("--entropy_method", type=str, default="gaussian", choices=["gaussian", "knn"])
+    parser.add_argument("--entropy_method", type=str, default="knn", choices=["gaussian", "knn"])
     parser.add_argument("--knn_k", type=int, default=5)
 
     args = parser.parse_args()
