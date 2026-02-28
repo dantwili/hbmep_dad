@@ -52,9 +52,13 @@ class EncoderNetwork(nn.Module):
         input_dim = self.design_dim_flat + self.observation_dim_flat
 
         self.linear1 = nn.Linear(input_dim, hidden_dim)
-        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
         self.output_layer = nn.Linear(hidden_dim, encoding_dim)
-        self.softplus = nn.Softplus()
+        self.relu = nn.ReLU()
+
+        # self.linear1 = nn.Linear(input_dim, hidden_dim)
+        # self.linear2 = nn.Linear(hidden_dim, hidden_dim)
+        # self.output_layer = nn.Linear(hidden_dim, encoding_dim)
+        # self.softplus = nn.Softplus()
 
     def forward(self, xi, y, **kwargs):
         """
@@ -66,10 +70,15 @@ class EncoderNetwork(nn.Module):
         inputs = torch.cat([xi, y], dim=-1)
 
         x = self.linear1(inputs)
-        x = self.softplus(x)
-        x = self.linear2(x)
-        x = self.softplus(x)
+        x = self.relu(x)
         x = self.output_layer(x)
+
+        # x = self.linear1(inputs)
+        # x = self.softplus(x)
+        # x = self.linear2(x)
+        # x = self.softplus(x)
+        # x = self.output_layer(x)
+
         return x
 
 
@@ -300,20 +309,20 @@ class MEPModel(nn.Module):
                 
                 true_theta = {
                     'a': a,
-                    'b': trace.nodes["b"]["value"].cpu().item(),
-                    'L': trace.nodes["L"]["value"].cpu().item(),
-                    'ell': trace.nodes["ell"]["value"].cpu().item(),
-                    'H': trace.nodes["H"]["value"].cpu().item(),
-                    'c1': trace.nodes["c1"]["value"].cpu().item(),
-                    'c2': trace.nodes["c2"]["value"].cpu().item(),
+                    # 'b': trace.nodes["b"]["value"].cpu().item(),
+                    # 'L': trace.nodes["L"]["value"].cpu().item(),
+                    # 'ell': trace.nodes["ell"]["value"].cpu().item(),
+                    # 'H': trace.nodes["H"]["value"].cpu().item(),
+                    # 'c1': trace.nodes["c1"]["value"].cpu().item(),
+                    # 'c2': trace.nodes["c2"]["value"].cpu().item(),
                 }
                 
                 if verbose:
                     print(f"*True Parameters:*")
                     print(f"  Threshold (a): {true_theta['a']:.2f}")
-                    print(f"  Growth rate (b): {true_theta['b']:.3f}")
-                    print(f"  Offset (L): {true_theta['L']:.3f}")
-                    print(f"  Saturation (L+H): {(true_theta['L'] + true_theta['H']):.3f}")
+                    # print(f"  Growth rate (b): {true_theta['b']:.3f}")
+                    # print(f"  Offset (L): {true_theta['L']:.3f}")
+                    # print(f"  Saturation (L+H): {(true_theta['L'] + true_theta['H']):.3f}")
                 
                 run_xis = []
                 run_ys = []
@@ -375,6 +384,8 @@ def single_run(
     mlflow_experiment_name,
     design_network_type,  # "dad" or "static" or "random"
     adam_betas_wd=[0.9, 0.999, 0],
+    mlflow_tracking_uri=None,
+    mlflow_run_name=None,
 ):
     """
     Train MEP design network using DAD framework.
@@ -403,119 +414,123 @@ def single_run(
         raise ValueError(f"design_network_type={design_network_type} not supported.")
 
     ### Set up MLflow logging ###
+    if mlflow_tracking_uri is not None:
+        mlflow.set_tracking_uri(mlflow_tracking_uri)
+
     mlflow.set_experiment(mlflow_experiment_name)
     
-    ## Reproducibility
-    mlflow.log_param("seed", seed)
-    
-    ## Model hyperparameters
-    mlflow.log_param("num_experiments", T)
-    mlflow.log_param("intensity_min", intensity_min)
-    mlflow.log_param("intensity_max", intensity_max)
-    mlflow.log_param("a_loc", a_loc)
-    mlflow.log_param("a_scale", a_scale)
-    mlflow.log_param("b_scale", b_scale)
-    mlflow.log_param("L_scale", L_scale)
-    mlflow.log_param("ell_scale", ell_scale)
-    mlflow.log_param("H_scale", H_scale)
-    mlflow.log_param("c1_scale", c1_scale)
-    mlflow.log_param("c2_scale", c2_scale)
-    
-    ## Design network hyperparameters
-    mlflow.log_param("design_network_type", design_network_type)
-    if design_network_type == "dad":
-        mlflow.log_param("hidden_dim", hidden_dim)
-        mlflow.log_param("encoding_dim", encoding_dim)
-    mlflow.log_param("num_inner_samples", num_inner_samples)
-    mlflow.log_param("num_outer_samples", num_outer_samples)
-    
-    ## Optimizer hyperparameters
-    mlflow.log_param("num_steps", num_steps)
-    mlflow.log_param("lr", lr)
-    mlflow.log_param("gamma", gamma)
-    mlflow.log_param("adam_beta1", adam_betas[0])
-    mlflow.log_param("adam_beta2", adam_betas[1])
-    mlflow.log_param("adam_weight_decay", adam_weight_decay)
-
-    ### Create model ###
-    mep_model = MEPModel(
-        design_net=design_net,
-        a_loc=a_loc,
-        a_scale=a_scale,
-        b_scale=b_scale,
-        L_scale=L_scale,
-        ell_scale=ell_scale,
-        H_scale=H_scale,
-        c1_scale=c1_scale,
-        c2_scale=c2_scale,
-        intensity_min=intensity_min,
-        intensity_max=intensity_max,
-        T=T,
-    )
-
-    ### Set up optimizer ###
-    optimizer = torch.optim.Adam
-    scheduler = pyro.optim.ExponentialLR(
-        {
-            "optimizer": optimizer,
-            "optim_args": {
-                "lr": lr,
-                "betas": adam_betas,
-                "weight_decay": adam_weight_decay,
-            },
-            "gamma": gamma,
-        }
-    )
-    
-    ### Set up loss (PCE bound) ###
-    pce_loss = PriorContrastiveEstimation(num_outer_samples, num_inner_samples)
-
-    ### Create OED object ###
-    oed = OED(mep_model.model, scheduler, pce_loss)
-
-    ### Optimize ###
-    loss_history = []
-    num_steps_range = trange(0, num_steps, desc="Loss: 0.000 ")
-    
-    for i in num_steps_range:
-        loss = oed.step()
-        loss = torch_item(loss)
-        loss_history.append(loss)
+    with mlflow.start_run(run_name=mlflow_run_name):
+        ## Reproducibility
+        mlflow.log_param("seed", seed)
         
-        # Log every 50 steps
-        if i % 50 == 0:
-            num_steps_range.set_description("Loss: {:.3f} ".format(loss))
-            loss_eval = oed.evaluate_loss()
-            mlflow.log_metric("loss", loss_eval, step=i)
+        ## Model hyperparameters
+        mlflow.log_param("num_experiments", T)
+        mlflow.log_param("intensity_min", intensity_min)
+        mlflow.log_param("intensity_max", intensity_max)
+        mlflow.log_param("a_loc", a_loc)
+        mlflow.log_param("a_scale", a_scale)
+        mlflow.log_param("b_scale", b_scale)
+        mlflow.log_param("L_scale", L_scale)
+        mlflow.log_param("ell_scale", ell_scale)
+        mlflow.log_param("H_scale", H_scale)
+        mlflow.log_param("c1_scale", c1_scale)
+        mlflow.log_param("c2_scale", c2_scale)
+        
+        ## Design network hyperparameters
+        mlflow.log_param("design_network_type", design_network_type)
+        if design_network_type == "dad":
+            mlflow.log_param("hidden_dim", hidden_dim)
+            mlflow.log_param("encoding_dim", encoding_dim)
+        mlflow.log_param("num_inner_samples", num_inner_samples)
+        mlflow.log_param("num_outer_samples", num_outer_samples)
+        
+        ## Optimizer hyperparameters
+        mlflow.log_param("num_steps", num_steps)
+        mlflow.log_param("lr", lr)
+        mlflow.log_param("gamma", gamma)
+        mlflow.log_param("adam_beta1", adam_betas[0])
+        mlflow.log_param("adam_beta2", adam_betas[1])
+        mlflow.log_param("adam_weight_decay", adam_weight_decay)
+
+        ### Create model ###
+        mep_model = MEPModel(
+            design_net=design_net,
+            a_loc=a_loc,
+            a_scale=a_scale,
+            b_scale=b_scale,
+            L_scale=L_scale,
+            ell_scale=ell_scale,
+            H_scale=H_scale,
+            c1_scale=c1_scale,
+            c2_scale=c2_scale,
+            intensity_min=intensity_min,
+            intensity_max=intensity_max,
+            T=T,
+        )
+
+        ### Set up optimizer ###
+        optimizer = torch.optim.Adam
+        scheduler = pyro.optim.ExponentialLR(
+            {
+                "optimizer": optimizer,
+                "optim_args": {
+                    "lr": lr,
+                    "betas": adam_betas,
+                    "weight_decay": adam_weight_decay,
+                },
+                "gamma": gamma,
+            }
+        )
+        
+        ### Set up loss (PCE bound) ###
+        pce_loss = PriorContrastiveEstimation(num_outer_samples, num_inner_samples)
+
+        ### Create OED object ###
+        oed = OED(mep_model.model, scheduler, pce_loss)
+
+        ### Optimize ###
+        loss_history = []
+        num_steps_range = trange(0, num_steps, desc="Loss: 0.000 ")
+        
+        for i in num_steps_range:
+            loss = oed.step()
+            loss = torch_item(loss)
+            loss_history.append(loss)
             
-        # Decrease learning rate every 1000 steps
-        if i % 1000 == 0:
-            scheduler.step()
+            # Log every 50 steps
+            if i % 50 == 0:
+                num_steps_range.set_description("Loss: {:.3f} ".format(loss))
+                loss_eval = oed.evaluate_loss()
+                mlflow.log_metric("loss", loss_eval, step=i)
+                
+            # Decrease learning rate every 1000 steps
+            if i % 1000 == 0:
+                scheduler.step()
 
-    # Log final metrics
-    if len(loss_history) == 0:
-        # Random designs - no gradient updates
-        loss = torch_item(pce_loss.differentiable_loss(mep_model.model))
-        mlflow.log_metric("loss", loss)
-        mlflow.log_metric("loss_diff50", 0)
-        mlflow.log_metric("loss_av50", loss)
-    else:
-        loss_diff50 = np.mean(loss_history[-51:-1]) / np.mean(loss_history[0:50]) - 1
-        mlflow.log_metric("loss_diff50", loss_diff50)
-        loss_av50 = np.mean(loss_history[-51:-1])
-        mlflow.log_metric("loss_av50", loss_av50)
+        # Log final metrics
+        if len(loss_history) == 0:
+            # Random designs - no gradient updates
+            loss = torch_item(pce_loss.differentiable_loss(mep_model.model))
+            mlflow.log_metric("loss", loss)
+            mlflow.log_metric("loss_diff50", 0)
+            mlflow.log_metric("loss_av50", loss)
+        else:
+            loss_diff50 = np.mean(loss_history[-51:-1]) / np.mean(loss_history[0:50]) - 1
+            mlflow.log_metric("loss_diff50", loss_diff50)
+            loss_av50 = np.mean(loss_history[-51:-1])
+            mlflow.log_metric("loss_av50", loss_av50)
 
-    mep_model.eval()
-    
-    # Store model as MLflow artifact
-    print("Storing model to MLflow... ", end="")
-    mlflow.pytorch.log_model(mep_model.cpu(), "model")
-    ml_info = mlflow.active_run().info
-    model_loc = f"mlruns/{ml_info.experiment_id}/{ml_info.run_id}/artifacts/model"
-    print(f"Model stored in {model_loc}. Done.")
-    print(f"The experiment-id of this run is {ml_info.experiment_id}")
+        mep_model.eval()
+        
+        # Store model as MLflow artifact
+        print("Storing model to MLflow... ", end="")
+        mlflow.pytorch.log_model(mep_model.cpu(), "model")
+        ml_info = mlflow.active_run().info
+        model_loc = f"mlruns/{ml_info.experiment_id}/{ml_info.run_id}/artifacts/model"
+        print(f"Model stored in {model_loc}. Done.")
+        print(f"The experiment-id of this run is {ml_info.experiment_id}")
 
-    return mep_model
+        return mep_model
 
 
 # ============================================================================
@@ -555,12 +570,16 @@ if __name__ == "__main__":
     # Network architecture
     parser.add_argument("--device", default="cuda", type=str)
     parser.add_argument("--hidden-dim", default=128, type=int)
-    parser.add_argument("--encoding-dim", default=16, type=int)
+    parser.add_argument("--encoding-dim", default=8, type=int)
     parser.add_argument("--design-network-type", default="dad", type=str)
     parser.add_argument("--adam-betas-wd", nargs="+", default=[0.9, 0.999, 0])
     parser.add_argument(
         "--mlflow-experiment-name", default="mep_recruitment", type=str
     )
+    parser.add_argument("--mlflow-tracking-uri", default=None, type=str,
+                    help="MLflow tracking URI (e.g. file:/path/to/mlruns)")
+    parser.add_argument("--mlflow-run-name", default=None, type=str,
+                        help="Optional MLflow run name (e.g. dad_50k_123456)")
 
     args = parser.parse_args()
 
@@ -588,4 +607,6 @@ if __name__ == "__main__":
         mlflow_experiment_name=args.mlflow_experiment_name,
         design_network_type=args.design_network_type,
         adam_betas_wd=args.adam_betas_wd,
+        mlflow_tracking_uri=args.mlflow_tracking_uri,
+        mlflow_run_name=args.mlflow_run_name,
     )
